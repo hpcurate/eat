@@ -129,6 +129,18 @@
     .pad-key:active{background:var(--yd);border-color:var(--y)}
     .pad-key.alt{color:var(--mu);font-size:15px}
     .pad-key.alt:active{color:var(--re);border-color:var(--re);background:rgba(224,96,96,.1)}
+    .cp-name{font:700 13px/1 var(--head);letter-spacing:.06em;text-transform:uppercase;
+             color:var(--tx);margin-bottom:10px}
+    .cp-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
+    .cp-opt{background:var(--s2);border:1px solid var(--bd);border-radius:3px;cursor:pointer;
+            padding:11px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;
+            transition:all .1s;user-select:none}
+    .cp-opt:active{background:var(--yd)}
+    .cp-opt.on{border-color:var(--cat-color)}
+    .cp-opt svg{width:17px;height:17px;color:var(--cat-color)}
+    .cp-opt span{font:400 9px/1.2 var(--mono);color:var(--mu);letter-spacing:.04em;text-align:center}
+    .cp-opt.on span{color:var(--tx)}
+
     .pad-ops{display:grid;grid-template-columns:1fr 1fr;gap:5px}
     .pad-op{border:1px solid var(--bd);border-radius:3px;background:var(--s2);
             font:700 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
@@ -155,7 +167,10 @@
              padding:12px 13px;margin-bottom:5px;cursor:pointer;text-align:left;
              display:flex;align-items:center;gap:11px;transition:all .1s;user-select:none}
     .li-item:active{background:var(--s2)}
-    .li-dot{width:8px;height:8px;border-radius:50%;background:var(--cat-color,#888);flex-shrink:0;transition:all .15s}
+    .li-dot{width:8px;height:8px;border-radius:50%;background:var(--cat-color,#888);flex-shrink:0;
+            transition:all .15s;border:none;padding:0;cursor:pointer;
+            box-shadow:0 0 0 6px transparent}
+    .li-dot:active{box-shadow:0 0 0 6px var(--yd)}
     .li-name{flex:1;min-width:0;font:400 13px/1.3 var(--mono);color:var(--tx);letter-spacing:.04em;word-break:break-word}
     .li-qty{display:flex;align-items:center;flex-shrink:0;background:var(--s2);
             border:1px solid var(--bd);border-radius:3px;overflow:hidden}
@@ -617,6 +632,17 @@
   </div>
 </div>
 
+<!-- ═══ CATEGORY PICKER ═════════════════════════════════════════════════════ -->
+<div class="sheet-back" id="cp-back" onclick="closeCatPick()"></div>
+<div class="pad" id="catpick">
+  <div class="pad-head">
+    <span class="pad-ttl">category</span>
+    <button class="pad-close" onclick="closeCatPick()">close</button>
+  </div>
+  <div class="cp-name" id="cp-name">—</div>
+  <div class="cp-grid" id="cp-grid"></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -677,13 +703,177 @@ const MEALS = {
   dumpling_night: { label:'dumpling night',  items:[['dumplings','frozen'],['soy sauce','condiments'],['sweet chili','condiments']] },
 };
 
+// ─── Categorisation ──────────────────────────────────────────────────────────
+/* Extra vocabulary on top of the CATEGORIES item lists: synonyms, plurals the
+   stemmer won't reach, brands, and French names (the item lists already mix in
+   "porc", "origan", "creme fraiche"). Multi-word terms win over single words,
+   so "orange juice" lands in drinks rather than fruits. */
+const CAT_WORDS = {
+  vegetables: ['cherry tomato','sweet potato','spring onion','green onion','green bean','bell pepper',
+    'courgette','aubergine','eggplant','capsicum','poivron','courge','lettuce','salad','salade','laitue',
+    'cucumber','concombre','mushroom','champignon','leek','poireau','celery','celeri','cabbage','chou',
+    'cauliflower','ginger','gingembre','radish','radis','beetroot','betterave','pumpkin','potiron',
+    'asparagus','asperge','artichoke','artichaut','kale','arugula','rocket','roquette','turnip','navet',
+    'endive','fennel','fenouil','squash','carotte','oignon','ail','echalote','epinard','pomme de terre',
+    'haricot vert','brocoli','broccoli','zucchini','tomatoes','patate'],
+  fruits: ['orange','lemon','citron','lime','grape','raisin','strawberry','fraise','raspberry','framboise',
+    'blueberry','myrtille','blackberry','mure','cherry','cerise','pear','poire','pineapple','ananas',
+    'mango','mangue','melon','watermelon','pasteque','apricot','abricot','plum','prune','fig','figue',
+    'grapefruit','pamplemousse','clementine','mandarin','nectarine','papaya','passion fruit',
+    'pomegranate','grenade','coconut','date','berry','berries','pomme','banane','peche','fruit'],
+  meats: ['pork','boeuf','poulet','canard','poisson','oeuf','oeufs','turkey','dinde','lamb','agneau',
+    'veal','veau','bacon','lardons','sausage','saucisse','merguez','ham','jambon','mince','ground beef',
+    'hache','steak','salami','chorizo','prosciutto','pancetta','shrimp','crevette','prawn','scampi',
+    'mussels','moules','scallop','coquille','liver','foie','meatball','boulette','nugget','schnitzel',
+    'escalope','filet','breast','thigh','cuisse','ribs','brisket','tuna','thon','trout','truite',
+    'seabass','bar','dorade','crab','crabe','lobster','homard','chicken breast'],
+  snacks: ['crisps','biscuit','cookie','candy','bonbon','sweets','popcorn','pretzel','cracker','tuc',
+    'granola bar','protein bar','gummy','haribo','oreo','pringles','doritos','lays','kinder',
+    'chocolate bar','chocolat','snack','speculoos','madeleine','gaufre','waffle','donut','beignet',
+    'cake','gateau','tarte','pie','muffin','crepe','biscotte','nachos','tortilla chips','peanuts',
+    'cashew','almond','amande','pistachio','pistache','noisette','hazelnut','trail mix','dried fruit'],
+  carbs: ['spaghetti','penne','fusilli','tagliatelle','linguine','farfalle','lasagna','lasagne','macaroni',
+    'pate','pates','noodle','nouille','riz','pain','wrap','couscous','quinoa','bulgur','polenta','gnocchi',
+    'flour','farine','pita','naan','bun','roll','toast','semolina','semoule','vermicelli','udon','soba',
+    'orzo','risotto','sandwich bread','pain de mie','ciabatta','focaccia','crouton','breadcrumb',
+    'chapelure','pizza dough','pate a pizza','puff pastry','pate feuilletee'],
+  cans: ['canned','tinned','conserve','passata','coulis','concentre','puree','tomato paste','petit pois',
+    'pois chiche','chickpea','haricot rouge','kidney bean','white bean','haricot blanc','butter bean',
+    'baked beans','lentille','mais','sweetcorn','coconut milk','lait de coco','olive','pickle',
+    'cornichon','caper','capre','soup','soupe','broth','bouillon','stock','tomato sauce','sauce tomate',
+    'sardine','anchovy','anchois','jackfruit','beans','bean'],
+  dairy: ['milk','lait','cream','creme','parmesan','feta','brie','camembert','comte','emmental','chevre',
+    'goat cheese','ricotta','mascarpone','cottage cheese','cheese','fromage','skyr','kefir','sour cream',
+    'chantilly','whipped cream','raclette','halloumi','babybel','philadelphia','laughing cow',
+    'vache qui rit','petit suisse','fromage blanc','mozzarella','yaourt','beurre','margarine','ghee',
+    'oat milk','almond milk','soy milk','lait vegetal'],
+  frozen: ['ice cream','glace','sorbet','sorbet','surgele','congele','gyoza','potsticker','spring roll',
+    'nem','frozen','frites','fish stick','baton de poisson','frozen peas','frozen veg','crevettes surgelees'],
+  breakfast: ['cereal','cereales','honey','miel','granola','croissant','pain au chocolat','pancake',
+    'syrup','sirop','maple','erable','peanut butter','beurre de cacahuete','marmalade','marmelade',
+    'confiture','nutella','cafe','espresso','instant coffee','coffee beans','capsule','dosette',
+    'flocons','avoine','porridge','weetabix','corn flakes','chocapic','miel'],
+  condiments: ['huile','oil','mayo','mayonnaise','vinegar','vinaigre','balsamic','balsamique','bbq sauce',
+    'hot sauce','sriracha','tabasco','harissa','pesto','hummus','houmous','tahini','sauce','dressing',
+    'vinaigrette','wasabi','salsa','guacamole','aioli','curry paste','fish sauce','nuoc mam',
+    'oyster sauce','worcestershire','teriyaki','tzatziki','moutarde','sauce soja','soja','sweet and sour',
+    'peanut sauce','tapenade','relish','horseradish','raifort',
+    'huile olive','huile tournesol','huile sesame','huile coco','huile colza'],
+  spices: ['oregano','cinnamon','cannelle','nutmeg','muscade','turmeric','curcuma','chili powder',
+    'cayenne','thyme','thym','rosemary','romarin','basil','basilic','bay leaf','laurier','coriander',
+    'coriandre','parsley','persil','dill','aneth','mint','menthe','sesame seed','graines de sesame',
+    'vanilla','vanille','saffron','safran','herbes de provence','ras el hanout','zaatar','sumac',
+    'five spice','garam masala','spice','epice','seasoning','assaisonnement','stock cube','cube bouillon',
+    'sel','poivre','black pepper','peppercorn','baking powder','levure','sugar','sucre','cardamom',
+    'clove','girofle','fenugreek','anise','anis'],
+  drinks: ['water','eau','sparkling','petillante','cola','coke','pepsi','sprite','fanta','soda','lemonade',
+    'limonade','tonic','juice','jus','beer','biere','wine','vin','rose','champagne','prosecco','cider',
+    'cidre','whisky','whiskey','vodka','rum','rhum','gin','tequila','aperol','spritz','martini','porto',
+    'energy drink','smoothie','milkshake','tea','the','kombucha','iced tea','perrier','san pellegrino',
+    'evian','badoit','orangina','schweppes','oasis','tropicana','coconut water',
+    'jus orange','jus pomme','jus raisin','jus fruit','jus ananas'],
+};
+
+/* Plural stripping, deliberately shallow — it runs on both the query and the
+   vocabulary, so it only has to be self-consistent, not linguistically right. */
+function stem(w) {
+  if (w.length > 4 && w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if (w.length > 4 && /(ches|shes|sses|xes)$/.test(w)) return w.slice(0, -2);
+  if (w.length > 3 && w.endsWith('s') && !/(ss|us|is)$/.test(w)) return w.slice(0, -1);
+  return w;
+}
+/* Single letters are dropped so French elisions collapse: "huile d'olive"
+   and "jus d'orange" tokenise the same as the phrases stored below. */
+function stemTokens(s) {
+  return tdKey(s).split(' ').filter(w => w.length > 1).map(stem);
+}
+
+/* Vocabulary is built once: every known item plus every keyword above, each
+   pre-stemmed into tokens. Items get a small edge over keywords on a tie. */
+let VOCAB = null;
+function vocab() {
+  if (VOCAB) return VOCAB;
+  VOCAB = [];
+  const add = (list, cat, bonus) => list.forEach(i => {
+    const t = stemTokens(i);
+    if (t.length) VOCAB.push({ t, cat, bonus });
+  });
+  for (const [cat, def] of Object.entries(CATEGORIES)) {
+    if (cat !== 'manual') add(def.items, cat, 3);
+  }
+  for (const [cat, words] of Object.entries(CAT_WORDS)) add(words, cat, 0);
+  return VOCAB;
+}
+
+function lev(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > cap) return cap + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function fuzzyCap(w) { return w.length >= 8 ? 2 : w.length >= 5 ? 1 : 0; }
+
+/* Is `t` a run of consecutive tokens inside `n`? Returns the match position. */
+function phraseAt(n, t) {
+  outer:
+  for (let i = 0; i + t.length <= n.length; i++) {
+    for (let j = 0; j < t.length; j++) if (n[i + j] !== t[j]) continue outer;
+    return i;
+  }
+  return -1;
+}
+
+/* Scores every vocabulary entry against the name and returns the best category.
+   Later tokens score slightly higher, so "cherry tomatoes" reads as a tomato
+   and "tomato soup" reads as a soup — English puts the head noun last. */
+function classify(raw) {
+  const learned = (state.learned || {})[tdKey(raw)];
+  if (learned && CATEGORIES[learned]) return { cat: learned, score: 999, why: 'learned' };
+  return classifyBase(raw);
+}
+function classifyBase(raw) {
+  const n = stemTokens(raw);
+  if (!n.length) return { cat: 'manual', score: 0 };
+
+  let best = { cat: 'manual', score: 0 };
+  for (const v of vocab()) {
+    let score = 0;
+    const at = phraseAt(n, v.t);
+    if (at >= 0) {
+      score = 50 + 40 * v.t.length          // longer phrases dominate
+            + (at + v.t.length) * 10        // head-noun bias: later tokens win
+            + (v.t.length === n.length ? 30 : 0)    // whole-name match
+            + v.bonus;
+    } else if (v.t.length === 1) {
+      // typo tolerance, one token at a time — "chiken", "avacado", "yoghurt"
+      for (let i = 0; i < n.length; i++) {
+        const cap = fuzzyCap(n[i]);
+        if (!cap) continue;
+        const d = lev(n[i], v.t[0], cap);
+        if (d <= cap) score = Math.max(score, 45 - d * 6 + i * 2 + v.bonus);
+      }
+    }
+    if (score > best.score) best = { cat: v.cat, score };
+  }
+  return best.score >= 25 ? best : { cat: 'manual', score: best.score };
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 const SK = 'store_state_v1';
 const SK_LEGACY = 'eat_state_v1';   // pre-rename key — read once, then migrate
 const TD_DEFAULTS = { token:'', project:'04|life', section:'home|groceries',
                       projectId:null, sectionId:null, lastSync:null };
 let state = { cart:0, budget:0, list:[], history:[], currentCat:null,
-              todoist: { ...TD_DEFAULTS } };
+              todoist: { ...TD_DEFAULTS }, learned: {} };
 
 function loadState() {
   try {
@@ -702,8 +892,9 @@ function loadState() {
       state.history = Array.isArray(state.history) ? state.history : [];
     }
   } catch {}
-  // nested defaults survive an older save that predates the Todoist block
+  // nested defaults survive an older save that predates these blocks
   state.todoist = Object.assign({ ...TD_DEFAULTS }, state.todoist || {});
+  if (!state.learned || typeof state.learned !== 'object') state.learned = {};
 }
 function saveState() { localStorage.setItem(SK, JSON.stringify(state)); }
 
@@ -853,11 +1044,12 @@ function addManual() {
   const inp = document.getElementById('manual-input');
   const name = inp.value.trim();
   if (!name) return;
-  addItemSilent(name, 'manual');
+  const cat = classify(name).cat;
+  addItemSilent(name, cat);
   inp.value = '';
   saveState();
   renderList();
-  toast(`+ ${name}`);
+  toast(cat === 'manual' ? `+ ${name}` : `+ ${name} → ${CATEGORIES[cat].label}`);
 }
 function toggleChecked(idx) {
   state.list[idx].checked = !state.list[idx].checked;
@@ -934,7 +1126,8 @@ function renderList() {
       const color = CATEGORIES[c].color;
       return grouped[c].map(it => `
         <div class="li-item${it.checked ? ' checked' : ''}" style="--cat-color:${color}" onclick="toggleChecked(${it.idx})">
-          <span class="li-dot"></span>
+          <button class="li-dot" title="change category"
+                  onclick="event.stopPropagation();openCatPick(${it.idx})"></button>
           <span class="li-name">${esc(it.name)}</span>
           <span class="li-qty" onclick="event.stopPropagation()">
             <button class="li-qty-btn${(it.qty || 1) <= 1 ? ' off' : ''}" onclick="setQty(${it.idx},-1)">−</button>
@@ -945,6 +1138,43 @@ function renderList() {
         </div>
       `).join('');
     }).join('');
+}
+
+// ─── Category picker ─────────────────────────────────────────────────────────
+let cpIdx = null;
+function openCatPick(idx) {
+  const it = state.list[idx];
+  if (!it) return;
+  cpIdx = idx;
+  document.getElementById('cp-name').textContent = it.name;
+  document.getElementById('cp-grid').innerHTML = Object.entries(CATEGORIES).map(([key, cat]) => `
+    <button class="cp-opt${it.cat === key ? ' on' : ''}" style="--cat-color:${cat.color}"
+            onclick="setCat('${key}')">
+      <svg><use href="#${cat.icon}"/></svg><span>${cat.label}</span>
+    </button>`).join('');
+  document.getElementById('cp-back').classList.add('on');
+  document.getElementById('catpick').classList.add('on');
+}
+function closeCatPick() {
+  cpIdx = null;
+  document.getElementById('cp-back').classList.remove('on');
+  document.getElementById('catpick').classList.remove('on');
+}
+/* A correction is remembered by name, so the same item files itself correctly
+   next time it is typed or pulled in from Todoist. */
+function setCat(key) {
+  const it = state.list[cpIdx];
+  if (!it || !CATEGORIES[key]) return closeCatPick();
+  it.cat = key;
+  const k = tdKey(it.name);
+  if (k) {
+    if (classifyBase(it.name).cat === key) delete state.learned[k];  // no override needed
+    else state.learned[k] = key;
+  }
+  saveState();
+  renderList();
+  closeCatPick();
+  toast(`${it.name} → ${CATEGORIES[key].label}`);
 }
 
 // ─── Categories ──────────────────────────────────────────────────────────────
@@ -1137,16 +1367,7 @@ function tdKey(name) {
 function tdContent(item) {
   return (item.qty || 1) > 1 ? `${item.name} ×${item.qty}` : item.name;
 }
-/* A name arriving from Todoist gets filed under the category that already
-   knows it, so colours and grouping keep working. Unknown names go to "other". */
-function tdGuessCat(name) {
-  const k = tdKey(name);
-  for (const [key, cat] of Object.entries(CATEGORIES)) {
-    if (key === 'manual') continue;
-    if (cat.items.some(i => tdKey(i) === k)) return key;
-  }
-  return 'manual';
-}
+function tdGuessCat(name) { return classify(name).cat; }
 
 async function tdFetch(path, opts = {}) {
   const t = state.todoist;
