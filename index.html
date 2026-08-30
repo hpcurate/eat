@@ -271,6 +271,21 @@
     .setting-btn.danger:active{border-color:var(--re)}
     .data-warn{font:400 10px/1.6 var(--mono);color:var(--mu);padding:12px 14px;margin-bottom:16px;
                background:var(--s1);border:1px solid var(--bd);border-radius:3px}
+
+    /* ── Todoist sync ── */
+    .sec-act.sync{color:var(--y)}
+    .sec-act.sync:active{opacity:.6}
+    .sec-act:disabled,.setting-btn:disabled,.btn:disabled{opacity:.45;cursor:default}
+    .td-status{font:400 10px/1.6 var(--mono);color:var(--mu);letter-spacing:.04em;
+               padding:10px 12px;margin-bottom:8px;border-radius:3px;
+               background:var(--s1);border:1px solid var(--bd);word-break:break-word}
+    .td-status.good{color:var(--gr);border-color:rgba(92,219,125,.3)}
+    .td-status.bad{color:var(--re);border-color:rgba(224,96,96,.3)}
+    .td-status.busy{color:var(--y);border-color:rgba(167,139,250,.3)}
+    .td-acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+    .td-acts .setting-btn{text-align:center}
+    .td-last{font:400 9px/1 var(--mono);color:var(--mu);letter-spacing:.08em;
+             text-align:center;padding:10px 0 2px}
     .btn{width:100%;background:var(--y);border:none;border-radius:3px;color:#0e0e0e;
          font:700 14px/1 var(--head);letter-spacing:.1em;text-transform:uppercase;
          padding:15px;cursor:pointer;margin-top:6px;transition:opacity .15s}
@@ -422,6 +437,7 @@
     <div class="sec">
       <span>list <em id="list-count">0 items</em></span>
       <div class="sec-acts">
+        <button class="sec-act sync" data-td-btn="⇅ todoist" onclick="syncTodoist()">⇅ todoist</button>
         <button class="sec-act" id="trip-btn" onclick="saveTrip()">save trip</button>
         <button class="sec-act danger" onclick="confirmClearList()">clear</button>
       </div>
@@ -509,6 +525,36 @@
       <input type="number" inputmode="decimal" id="budget-input" placeholder="100" step="1">
     </div>
     <button class="btn" onclick="saveBudget()">save budget</button>
+
+    <div class="sec">Todoist sync</div>
+    <div class="data-warn hidden" id="td-file-warn">
+      STORE is open as a local file, so the browser will block calls to Todoist.
+      Serve it over http(s) — e.g. GitHub Pages — for sync to work.
+    </div>
+    <div class="f">
+      <label class="lbl">API token</label>
+      <input type="password" id="td-token" placeholder="paste your API token"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="f">
+      <label class="lbl">Project</label>
+      <input type="text" id="td-project" placeholder="04|life" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="f">
+      <label class="lbl">Section</label>
+      <input type="text" id="td-section" placeholder="home|groceries" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="td-status" id="td-status">Todoist → Settings → Integrations → Developer → API token</div>
+    <div class="td-acts">
+      <button class="setting-btn" onclick="saveTodoist()">save</button>
+      <button class="setting-btn" onclick="testTodoist()">test connection</button>
+    </div>
+    <button class="btn" data-td-btn="sync now" onclick="syncTodoist()">sync now</button>
+    <div class="td-last" id="td-last">never synced</div>
+    <div class="data-warn" style="margin-top:12px">
+      Sync only ever <em style="color:var(--tx);font-style:normal">adds</em>. Items missing on one
+      side are created on the other; nothing is deleted or completed in either place.
+    </div>
 
     <div class="sec">Data</div>
     <div class="data-warn">All data is stored locally on this device. Clearing browser data will permanently remove it.</div>
@@ -634,7 +680,10 @@ const MEALS = {
 // ─── State ───────────────────────────────────────────────────────────────────
 const SK = 'store_state_v1';
 const SK_LEGACY = 'eat_state_v1';   // pre-rename key — read once, then migrate
-let state = { cart:0, budget:0, list:[], history:[], currentCat:null };
+const TD_DEFAULTS = { token:'', project:'04|life', section:'home|groceries',
+                      projectId:null, sectionId:null, lastSync:null };
+let state = { cart:0, budget:0, list:[], history:[], currentCat:null,
+              todoist: { ...TD_DEFAULTS } };
 
 function loadState() {
   try {
@@ -653,6 +702,8 @@ function loadState() {
       state.history = Array.isArray(state.history) ? state.history : [];
     }
   } catch {}
+  // nested defaults survive an older save that predates the Todoist block
+  state.todoist = Object.assign({ ...TD_DEFAULTS }, state.todoist || {});
 }
 function saveState() { localStorage.setItem(SK, JSON.stringify(state)); }
 
@@ -1048,6 +1099,8 @@ function clearHistory() {
 // ─── Settings ────────────────────────────────────────────────────────────────
 function renderSettings() {
   document.getElementById('budget-input').value = state.budget > 0 ? state.budget : '';
+  renderTodoistSettings();
+  renderTdButtons();
 }
 function saveBudget() {
   const inp = document.getElementById('budget-input');
@@ -1059,6 +1112,226 @@ function saveBudget() {
   }
   saveState();
   toast(state.budget > 0 ? `budget set to €${state.budget.toFixed(2)}` : 'budget disabled');
+}
+
+// ─── Todoist sync ────────────────────────────────────────────────────────────
+// REST v2 was retired 2026-02-10; everything below targets the unified v1 API.
+const TD_BASE = 'https://api.todoist.com/api/v1';
+let tdBusy = false;
+
+/* Names are matched loosely so "Tomato  x2" and "tomato" are the same item:
+   lowercase, strip a trailing quantity, collapse whitespace and punctuation. */
+function tdParseQty(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(.*?)[\s,]*(?:[x×*]\s*(\d{1,2})|\((\d{1,2})\))$/i);
+  if (m && m[1].trim()) {
+    return { name: m[1].trim(), qty: Math.min(99, Math.max(1, parseInt(m[2] || m[3], 10))) };
+  }
+  return { name: s, qty: 1 };
+}
+function tdKey(name) {
+  return String(name || '').toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')   // drop accents
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function tdContent(item) {
+  return (item.qty || 1) > 1 ? `${item.name} ×${item.qty}` : item.name;
+}
+/* A name arriving from Todoist gets filed under the category that already
+   knows it, so colours and grouping keep working. Unknown names go to "other". */
+function tdGuessCat(name) {
+  const k = tdKey(name);
+  for (const [key, cat] of Object.entries(CATEGORIES)) {
+    if (key === 'manual') continue;
+    if (cat.items.some(i => tdKey(i) === k)) return key;
+  }
+  return 'manual';
+}
+
+async function tdFetch(path, opts = {}) {
+  const t = state.todoist;
+  if (!t.token) throw new Error('no API token saved — add one in settings');
+  let res;
+  try {
+    res = await fetch(TD_BASE + path, {
+      ...opts,
+      headers: {
+        'Authorization': 'Bearer ' + t.token,
+        ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(opts.headers || {}),
+      },
+    });
+  } catch (e) {
+    throw new Error(location.protocol === 'file:'
+      ? 'blocked by the browser — open STORE over http(s), not as a local file'
+      : 'network error — check your connection');
+  }
+  if (res.status === 401 || res.status === 403) throw new Error('token rejected by Todoist (401)');
+  if (res.status === 429) throw new Error('rate limited by Todoist — wait a minute');
+  if (!res.ok) throw new Error(`Todoist error ${res.status}`);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+/* v1 paginates some collections as {results,next_cursor} and returns others as a
+   bare array, so unwrap either and follow the cursor when there is one. */
+async function tdGetAll(path, params = {}) {
+  const out = [];
+  let cursor = null;
+  do {
+    const q = new URLSearchParams({ ...params, limit: '200' });
+    if (cursor) q.set('cursor', cursor);
+    const page = await tdFetch(`${path}?${q}`);
+    if (Array.isArray(page)) { out.push(...page); cursor = null; }
+    else { out.push(...(page?.results || [])); cursor = page?.next_cursor || null; }
+  } while (cursor);
+  return out;
+}
+
+/* Resolves "04|life" / "home|groceries" to ids once, then caches them. */
+async function tdResolveTarget(force = false) {
+  const t = state.todoist;
+  if (!force && t.projectId && t.sectionId) return t;
+
+  const projects = await tdGetAll('/projects');
+  const proj = projects.find(p => tdKey(p.name) === tdKey(t.project));
+  if (!proj) {
+    throw new Error(`project "${t.project}" not found (${projects.length} projects visible)`);
+  }
+  const sections = await tdGetAll('/sections', { project_id: proj.id });
+  const sec = sections.find(s => tdKey(s.name) === tdKey(t.section));
+  if (!sec) {
+    const names = sections.map(s => s.name).join(', ') || 'none';
+    throw new Error(`section "${t.section}" not found in ${proj.name} — has: ${names}`);
+  }
+  t.projectId = proj.id;
+  t.sectionId = sec.id;
+  saveState();
+  return t;
+}
+
+async function testTodoist() {
+  if (!state.todoist.token) { tdStatus('add your API token first', 'bad'); return; }
+  tdStatus('checking…', 'busy');
+  try {
+    const t = await tdResolveTarget(true);
+    const tasks = await tdGetAll('/tasks', { project_id: t.projectId, section_id: t.sectionId });
+    tdStatus(`connected — ${tasks.length} task${tasks.length === 1 ? '' : 's'} in ${t.section}`, 'good');
+  } catch (e) {
+    tdStatus(e.message, 'bad');
+  }
+}
+
+/* Two-way union merge. Nothing is ever deleted or completed on either side:
+   each side only gains the items the other side has and it is missing. */
+async function syncTodoist() {
+  if (tdBusy) return;
+  if (!state.todoist.token) { toast('add a Todoist token in settings'); go('settings'); return; }
+  tdBusy = true;
+  renderTdButtons();
+  tdStatus('syncing…', 'busy');
+  try {
+    const t = await tdResolveTarget();
+    const remote = await tdGetAll('/tasks', { project_id: t.projectId, section_id: t.sectionId });
+
+    const remoteByKey = new Map();
+    remote.forEach(task => {
+      const { name, qty } = tdParseQty(task.content);
+      const k = tdKey(name);
+      if (k && !remoteByKey.has(k)) remoteByKey.set(k, { name, qty });
+    });
+    const localKeys = new Set(state.list.map(i => tdKey(i.name)).filter(Boolean));
+
+    // ── Todoist → STORE
+    let pulled = 0;
+    remoteByKey.forEach((item, k) => {
+      if (localKeys.has(k)) return;
+      state.list.push({ name: item.name, cat: tdGuessCat(item.name), qty: item.qty, checked: false });
+      localKeys.add(k);
+      pulled++;
+    });
+    if (pulled) { saveState(); renderList(); }
+
+    // ── STORE → Todoist (snapshot first: the pull above appended to state.list)
+    const toPush = state.list.filter(i => {
+      const k = tdKey(i.name);
+      return k && !remoteByKey.has(k);
+    });
+    let pushed = 0, failed = 0;
+    for (const item of toPush) {
+      try {
+        await tdFetch('/tasks', {
+          method: 'POST',
+          body: JSON.stringify({
+            content: tdContent(item),
+            project_id: t.projectId,
+            section_id: t.sectionId,
+          }),
+        });
+        remoteByKey.set(tdKey(item.name), item);
+        pushed++;
+      } catch (e) { failed++; }
+    }
+
+    state.todoist.lastSync = Date.now();
+    saveState();
+    renderTodoistSettings();
+
+    const parts = [];
+    if (pulled) parts.push(`↓ ${pulled} added here`);
+    if (pushed) parts.push(`↑ ${pushed} sent`);
+    if (failed) parts.push(`${failed} failed`);
+    const msg = parts.length ? parts.join(' · ') : 'already in sync';
+    toast(msg);
+    tdStatus(msg, failed ? 'bad' : 'good');
+  } catch (e) {
+    toast('sync failed');
+    tdStatus(e.message, 'bad');
+  } finally {
+    tdBusy = false;
+    renderTdButtons();
+  }
+}
+
+function renderTdButtons() {
+  document.querySelectorAll('[data-td-btn]').forEach(b => {
+    b.disabled = tdBusy;
+    b.textContent = tdBusy ? 'syncing…' : b.dataset.tdBtn;
+  });
+}
+function tdStatus(msg, kind) {
+  const el = document.getElementById('td-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'td-status' + (kind ? ' ' + kind : '');
+}
+
+function saveTodoist() {
+  const tok  = document.getElementById('td-token').value.trim();
+  const proj = document.getElementById('td-project').value.trim();
+  const sec  = document.getElementById('td-section').value.trim();
+  const t = state.todoist;
+  // a changed target invalidates the cached ids
+  if (proj !== t.project || sec !== t.section) { t.projectId = null; t.sectionId = null; }
+  t.token = tok;
+  t.project = proj || TD_DEFAULTS.project;
+  t.section = sec || TD_DEFAULTS.section;
+  saveState();
+  renderTodoistSettings();
+  toast(tok ? 'todoist settings saved' : 'todoist token cleared');
+}
+
+function renderTodoistSettings() {
+  const t = state.todoist;
+  const tok = document.getElementById('td-token');
+  if (!tok) return;
+  tok.value = t.token;
+  document.getElementById('td-project').value = t.project;
+  document.getElementById('td-section').value = t.section;
+  document.getElementById('td-last').textContent =
+    t.lastSync ? 'last sync ' + new Date(t.lastSync).toLocaleString('en-GB',
+      { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : 'never synced';
+  document.getElementById('td-file-warn').classList.toggle('hidden', location.protocol !== 'file:');
 }
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
