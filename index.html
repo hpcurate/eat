@@ -86,7 +86,7 @@
     .cw-btn.plus:active{border-color:var(--gr);background:rgba(92,219,125,.1)}
     .cw-btn.minus{color:var(--re)}
     .cw-btn.minus:active{border-color:var(--re);background:rgba(224,96,96,.1)}
-    .cw-foot{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+    .cw-foot{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
     .cw-reset{width:100%;background:transparent;border:1px solid var(--bd);border-radius:3px;
               color:var(--mu);font:400 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
               padding:10px;cursor:pointer;transition:all .12s}
@@ -129,6 +129,24 @@
     .pad-key:active{background:var(--yd);border-color:var(--y)}
     .pad-key.alt{color:var(--mu);font-size:15px}
     .pad-key.alt:active{color:var(--re);border-color:var(--re);background:rgba(224,96,96,.1)}
+    /* ── Cart entry log ── */
+    .clog-sum{display:flex;justify-content:space-between;align-items:baseline;
+              background:var(--bg);border:1px solid var(--bd);border-radius:4px;
+              padding:11px 13px;margin-bottom:10px}
+    .clog-sum .cs-k{font:400 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mu)}
+    .clog-sum .cs-v{font:800 20px/1 var(--head);letter-spacing:-.01em;color:var(--tx)}
+    .clog-list{max-height:46vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .clog-row{display:flex;align-items:center;gap:10px;padding:9px 3px;
+              border-bottom:1px solid var(--bd)}
+    .clog-row:last-child{border-bottom:none}
+    .clog-i{font:400 9px/1 var(--mono);color:var(--mu);min-width:22px}
+    .clog-a{font:700 13px/1 var(--mono);letter-spacing:.02em;min-width:74px}
+    .clog-a.up{color:var(--gr)}
+    .clog-a.dn{color:var(--re)}
+    .clog-n{font:400 10px/1 var(--mono);color:var(--mu);flex:1;text-align:right}
+    .clog-t{font:400 9px/1 var(--mono);color:var(--mu);opacity:.6}
+    .clog-empty{font:400 11px/1.7 var(--mono);color:var(--mu);text-align:center;padding:30px 10px}
+
     .cp-name{font:700 13px/1 var(--head);letter-spacing:.06em;text-transform:uppercase;
              color:var(--tx);margin-bottom:10px}
     .cp-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
@@ -266,7 +284,9 @@
     .hist-pill{font:400 10px/1.3 var(--mono);background:var(--s2);border-radius:2px;
                padding:5px 8px;color:var(--tx);display:inline-flex;align-items:center;gap:6px}
     .hist-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--cat-color,var(--mu))}
-    .hist-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .hist-sub{font:400 9px/1 var(--mono);letter-spacing:.08em;color:var(--mu);
+              margin:-6px 0 10px}
+    .hist-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
     .hist-act{background:var(--s2);border:1px solid var(--bd);border-radius:3px;
               color:var(--tx);font:400 10px/1 var(--mono);letter-spacing:.06em;
               padding:10px;cursor:pointer;transition:all .12s}
@@ -444,7 +464,8 @@
       </div>
       <div class="cw-foot">
         <button class="cw-pad-btn" onclick="openPad()">numpad</button>
-        <button class="cw-reset" onclick="resetCart()">reset cart</button>
+        <button class="cw-pad-btn" id="cw-log-btn" onclick="openCartLog()">history</button>
+        <button class="cw-reset" onclick="resetCart()">reset</button>
       </div>
     </div>
 
@@ -629,6 +650,37 @@
   <div class="pad-ops">
     <button class="pad-op sub" onclick="padApply(-1)">− subtract</button>
     <button class="pad-op add" onclick="padApply(1)">+ add</button>
+  </div>
+</div>
+
+<!-- ═══ CART LOG ════════════════════════════════════════════════════════════ -->
+<div class="sheet-back" id="clog-back" onclick="closeCartLog()"></div>
+<div class="pad" id="clog">
+  <div class="pad-head">
+    <span class="pad-ttl">cart history</span>
+    <button class="pad-close" onclick="closeCartLog()">close</button>
+  </div>
+  <div class="clog-sum">
+    <span class="cs-k" id="clog-count">0 entries</span>
+    <span class="cs-v" id="clog-total">0.00€</span>
+  </div>
+  <div class="clog-list" id="clog-list"></div>
+</div>
+
+<!-- ═══ SAVE / NAME TRIP ════════════════════════════════════════════════════ -->
+<div class="sheet-back" id="trip-back" onclick="closeTripName()"></div>
+<div class="pad" id="tripname">
+  <div class="pad-head">
+    <span class="pad-ttl" id="trip-ttl">name this trip</span>
+    <button class="pad-close" onclick="closeTripName()">cancel</button>
+  </div>
+  <div class="f" style="margin-bottom:12px">
+    <input type="text" id="trip-input" placeholder="weekly shop…" autocomplete="off"
+           onkeydown="if(event.key==='Enter')confirmTripName()">
+  </div>
+  <div class="pad-ops">
+    <button class="pad-op sub" onclick="closeTripName()">cancel</button>
+    <button class="pad-op add" id="trip-ok" onclick="confirmTripName()">save trip</button>
   </div>
 </div>
 
@@ -872,7 +924,7 @@ const SK = 'store_state_v1';
 const SK_LEGACY = 'eat_state_v1';   // pre-rename key — read once, then migrate
 const TD_DEFAULTS = { token:'', project:'04|life', section:'home|groceries',
                       projectId:null, sectionId:null, lastSync:null };
-let state = { cart:0, budget:0, list:[], history:[], currentCat:null,
+let state = { cart:0, budget:0, cartLog:[], list:[], history:[], currentCat:null,
               todoist: { ...TD_DEFAULTS }, learned: {} };
 
 function loadState() {
@@ -890,6 +942,7 @@ function loadState() {
       state.budget = Number(state.budget) || 0;
       state.list = Array.isArray(state.list) ? state.list : [];
       state.history = Array.isArray(state.history) ? state.history : [];
+      state.cartLog = Array.isArray(state.cartLog) ? state.cartLog : [];
     }
   } catch {}
   // nested defaults survive an older save that predates these blocks
@@ -912,18 +965,31 @@ function go(id) {
 }
 
 // ─── Cart counter ────────────────────────────────────────────────────────────
-function addCart(amt) {
+const CART_LOG_MAX = 200;   // plenty for one shop, and keeps the save small
+
+/* Every change to the cart is logged so you can look back at what you punched
+   in. `note` carries the numpad's breakdown, e.g. "2.50 ×3". */
+function addCart(amt, note) {
+  const before = state.cart;
   state.cart = Math.max(0, Math.round((state.cart + amt) * 100) / 100);
+  const applied = Math.round((state.cart - before) * 100) / 100;   // honours the clamp at 0
+  if (applied !== 0) {
+    state.cartLog.push({ a: applied, t: Date.now(), n: note || '' });
+    if (state.cartLog.length > CART_LOG_MAX) state.cartLog.shift();
+  }
   saveState(); renderCart();
 }
 function resetCart() {
-  if (state.cart === 0) { toast('cart already at 0'); return; }
+  if (state.cart === 0 && !state.cartLog.length) { toast('cart already at 0'); return; }
   if (!confirm('Reset cart counter to €0.00?')) return;
-  state.cart = 0; saveState(); renderCart();
+  state.cart = 0; state.cartLog = [];
+  saveState(); renderCart();
   toast('cart reset');
 }
 function renderCart() {
   document.getElementById('cw-cart').textContent = state.cart.toFixed(2);
+  const logBtn = document.getElementById('cw-log-btn');
+  if (logBtn) logBtn.textContent = state.cartLog.length ? `history ${state.cartLog.length}` : 'history';
   const bud = state.budget;
   const budEl = document.getElementById('cw-budget');
   const fill = document.getElementById('cw-fill');
@@ -940,6 +1006,42 @@ function renderCart() {
     budEl.textContent = 'no budget set';
   }
 }
+// ─── Cart log ────────────────────────────────────────────────────────────────
+function openCartLog() {
+  renderCartLog();
+  document.getElementById('clog-back').classList.add('on');
+  document.getElementById('clog').classList.add('on');
+}
+function closeCartLog() {
+  document.getElementById('clog-back').classList.remove('on');
+  document.getElementById('clog').classList.remove('on');
+}
+function fmtClock(ts) {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function renderCartLog() {
+  const log = state.cartLog;
+  const n = log.length;
+  document.getElementById('clog-count').textContent = `${n} entr${n === 1 ? 'y' : 'ies'}`;
+  document.getElementById('clog-total').textContent = state.cart.toFixed(2) + '€';
+  const box = document.getElementById('clog-list');
+  if (!n) {
+    box.innerHTML = '<div class="clog-empty">nothing added yet — amounts you punch in show up here</div>';
+    return;
+  }
+  // newest first: the entry you just made is the one you're most likely checking
+  box.innerHTML = log.map((en, i) => {
+    const up = en.a > 0;
+    return `<div class="clog-row">
+      <span class="clog-i">${i + 1}</span>
+      <span class="clog-a ${up ? 'up' : 'dn'}">${up ? '+' : '−'}€${Math.abs(en.a).toFixed(2)}</span>
+      <span class="clog-n">${en.n ? esc(en.n) : ''}</span>
+      <span class="clog-t">${fmtClock(en.t)}</span>
+    </div>`;
+  }).reverse().join('');
+}
+
 // ─── Numpad ──────────────────────────────────────────────────────────────────
 let padBuf = '';   // raw typed digits, e.g. "12.5"
 let padN   = 1;    // how many of this item
@@ -986,7 +1088,7 @@ function renderPad() {
 function padApply(sign) {
   const total = padTotal();
   if (total === 0) { toast('enter an amount first'); return; }
-  addCart(sign * total);
+  addCart(sign * total, padN > 1 ? `${padValue().toFixed(2)} × ${padN}` : '');
   toast(`${sign > 0 ? '+' : '−'}€${total.toFixed(2)}${padN > 1 ? ` (${padN}×)` : ''}`);
   padBuf = ''; padN = 1; renderPad();
 }
@@ -1076,20 +1178,59 @@ function confirmClearList() {
   renderList();
   toast('list cleared');
 }
+/* Saving and renaming share one sheet: renameIdx === null means "save the
+   current list", otherwise it means "rename history[renameIdx]". */
+let renameIdx = null;
+
 function saveTrip() {
   if (!state.list.length) { toast('list is empty'); return; }
-  const date = new Date().toISOString().split('T')[0];
+  openTripName(null);
+}
+
+function openTripName(idx) {
+  renameIdx = idx;
+  const inp = document.getElementById('trip-input');
+  document.getElementById('trip-ttl').textContent = idx === null ? 'name this trip' : 'rename trip';
+  document.getElementById('trip-ok').textContent = idx === null ? 'save trip' : 'rename';
+  inp.value = idx === null ? '' : (state.history[idx]?.name || '');
+  document.getElementById('trip-back').classList.add('on');
+  document.getElementById('tripname').classList.add('on');
+  inp.focus();   // kept inside the tap gesture so iOS opens the keyboard
+}
+
+function closeTripName() {
+  renameIdx = null;
+  document.getElementById('trip-back').classList.remove('on');
+  document.getElementById('tripname').classList.remove('on');
+  document.getElementById('trip-input').blur();
+}
+
+function confirmTripName() {
+  const name = document.getElementById('trip-input').value.trim().slice(0, 60);
+  if (renameIdx !== null) {
+    const t = state.history[renameIdx];
+    if (t) t.name = name;          // blank clears it, falling back to the date
+    closeTripName();
+    saveState();
+    renderHistory();
+    toast(name ? `renamed to ${name}` : 'name cleared');
+    return;
+  }
+  if (!state.list.length) { closeTripName(); toast('list is empty'); return; }
   state.history.unshift({
-    date,
+    date: new Date().toISOString().split('T')[0],
+    name,                                        // '' is fine — the date shows instead
     items: state.list.map(i => ({ ...i })),
     cart: state.cart,
     budget: state.budget,
   });
   state.list = [];
   state.cart = 0;
+  state.cartLog = [];                            // fresh calculator for the next shop
+  closeTripName();
   saveState();
   renderHome();
-  toast('trip saved');
+  toast(name ? `saved · ${name}` : 'trip saved');
 }
 
 function renderList() {
@@ -1280,12 +1421,14 @@ function renderHistory() {
     return `
       <div class="hist-card">
         <div class="hist-head">
-          <span class="hist-date">${fmtDate(t.date)}</span>
+          <span class="hist-date">${t.name ? esc(t.name) : fmtDate(t.date)}</span>
           <span class="hist-amt${over ? ' over' : ''}">€${(t.cart || 0).toFixed(2)}${budTxt}</span>
         </div>
+        ${t.name ? `<div class="hist-sub">${fmtDate(t.date)}</div>` : ''}
         <div class="hist-items">${pills}</div>
         <div class="hist-actions">
-          <button class="hist-act" onclick="restoreTrip(${i})">re-add to list</button>
+          <button class="hist-act" onclick="openTripName(${i})">rename</button>
+          <button class="hist-act" onclick="restoreTrip(${i})">re-add</button>
           <button class="hist-act del" onclick="deleteTrip(${i})">delete</button>
         </div>
       </div>
